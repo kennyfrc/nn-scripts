@@ -1,2 +1,5 @@
+# test pgns
+*.pgn
+
 # VM
 env/
