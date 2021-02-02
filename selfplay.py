@@ -1,16 +1,19 @@
 import chess
 import chess.pgn
 import chess.engine
+import pdb
+import random
 
 # define engines
-ENGINE_1="stockfish"
-ENGINE_2="stockfish"
-
-# games pgn
-games = []
+ENGINE_1="lc0"
+ENGINE_2="lc0"
 
 # threshholds
-WIN_THRESHOLD = 150
+WIN_THRESHOLD = 100
+
+# engine options
+MULTIPV = 1
+NODES = 1
 
 # initialize engines
 engine_w = chess.engine.SimpleEngine.popen_uci(ENGINE_1)
@@ -30,22 +33,24 @@ while not board.is_game_over():
     # define move 
     # chess.engine.Info(2) == cp score 
     if board.turn == chess.WHITE:
-        result = engine_w.play(board, chess.engine.Limit(nodes=1), info=chess.engine.Info(2))
+        result = engine_w.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV)
     else:
-        result = engine_b.play(board, chess.engine.Limit(nodes=1), info=chess.engine.Info(2))
+        result = engine_b.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV)
+
+    # print(f"integer:", random.randint(0,4))
 
     # play the move
-    board.push(result.move)
+    board.push(result[0]['pv'][0])
 
     # record the move in the pgn
     if(node == ""):
-        node = game.add_main_variation(result.move)
+        node = game.add_main_variation(result[0]['pv'][0])
         
     else:
-        node = node.add_main_variation(result.move)
+        node = node.add_main_variation(result[0]['pv'][0])
 
     # write score
-    povscore = result.info["score"]
+    povscore = result[0]["score"]
     node.set_eval(povscore)
 
     # write result
@@ -67,6 +72,8 @@ while not board.is_game_over():
                 game.headers['Result'] = "0-1"
             elif (score > WIN_THRESHOLD):
                 game.headers['Result'] = "1-0"
+
+    # print(game)
 
 # quit engines
 engine_w.quit()

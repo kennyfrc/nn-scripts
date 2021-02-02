@@ -3,3 +3,7 @@
 
 # VM
 env/
+
+# engine weights and configuration
+*.pb
+*.config
