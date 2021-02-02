@@ -21,12 +21,12 @@ BOOK_MIN_PLY = 4
 engine_w = chess.engine.SimpleEngine.popen_uci(ENGINE_1)
 engine_b = chess.engine.SimpleEngine.popen_uci(ENGINE_2)
 
-# create pgn
+# create game tree
 game = chess.pgn.Game()
 game.headers["Event"] = "Example"
 game.headers["White"] = ENGINE_1
 game.headers["Black"] = ENGINE_2
-# init node
+# init game node
 node = None
 
 # initialize board
@@ -37,7 +37,7 @@ while not board.is_game_over():
     if board.ply() <= BOOK_MIN_PLY-1:
         # init book
         book = None
-        # initialize book
+        # load polyglot
         with chess.polyglot.open_reader("books/jbook.bin") as opening_book:
             if opening_book.get(board):
                 book = opening_book.weighted_choice(board)
@@ -62,7 +62,7 @@ while not board.is_game_over():
     # play the move
     board.push(result[0]['pv'][0])
 
-    # record the move in the pgn
+    # record the move in the game tree
     if(node == None):
         node = game.add_main_variation(result[0]['pv'][0])
         
@@ -82,7 +82,7 @@ while not board.is_game_over():
             else:
                 game.headers['Result'] = "0-1"
 
-        # non-checkmate situations
+        # write non-checkmate eval
         else:
             score = povscore.relative.score()
 
@@ -93,9 +93,10 @@ while not board.is_game_over():
             elif (score > WIN_THRESHOLD):
                 game.headers['Result'] = "1-0"
 
-    print(game)
+    # for debugging
+    # print(game)
 
-# quit engines
+# exit engines
 engine_w.quit()
 engine_b.quit()
 
