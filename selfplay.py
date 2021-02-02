@@ -26,14 +26,17 @@ game = chess.pgn.Game()
 game.headers["Event"] = "Example"
 game.headers["White"] = ENGINE_1
 game.headers["Black"] = ENGINE_2
-node = ""
+# init node
+node = None
 
 # initialize board
 board = chess.Board()
 
 while not board.is_game_over():
-
+    # if we're in the opening use the book
     if board.ply() <= BOOK_MIN_PLY-1:
+        # init book
+        book = None
         # initialize book
         with chess.polyglot.open_reader("books/jbook.bin") as opening_book:
             if opening_book.get(board):
@@ -47,6 +50,7 @@ while not board.is_game_over():
             result = engine_b.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV, root_moves=[book.move])
 
         opening_book.close()
+    # else, use engine moves
     else:
         # define non-book move
         # chess.engine.Info(2) == cp score 
@@ -59,7 +63,7 @@ while not board.is_game_over():
     board.push(result[0]['pv'][0])
 
     # record the move in the pgn
-    if(node == ""):
+    if(node == None):
         node = game.add_main_variation(result[0]['pv'][0])
         
     else:
