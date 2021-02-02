@@ -30,9 +30,9 @@ while not board.is_game_over():
     # define move 
     # chess.engine.Info(2) == cp score 
     if board.turn == chess.WHITE:
-        result = engine_w.play(board, chess.engine.Limit(nodes=100), info=chess.engine.Info(2))
+        result = engine_w.play(board, chess.engine.Limit(nodes=1), info=chess.engine.Info(2))
     else:
-        result = engine_b.play(board, chess.engine.Limit(nodes=100), info=chess.engine.Info(2))
+        result = engine_b.play(board, chess.engine.Limit(nodes=1), info=chess.engine.Info(2))
 
     # play the move
     board.push(result.move)
@@ -67,8 +67,6 @@ while not board.is_game_over():
                 game.headers['Result'] = "0-1"
             elif (score > WIN_THRESHOLD):
                 game.headers['Result'] = "1-0"
-
-    print(game)
 
 # quit engines
 engine_w.quit()
