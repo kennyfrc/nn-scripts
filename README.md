@@ -1,6 +1,6 @@
 # TODO:
 
 ## Self-play
-* Polyglot book reading
+* [done] Polyglot book reading
 * Appending multiple games into a pgn
 * MultiPV after book exit
