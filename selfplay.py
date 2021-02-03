@@ -137,7 +137,7 @@ def main(games):
                 else:
                     results = engine_b.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV)
 
-            move, score = pick_with_softmax(results,board.turn)
+            move, povscore = pick_with_softmax(results,board.turn)
 
             # play the move
             board.push(move)
@@ -150,7 +150,6 @@ def main(games):
                 node = node.add_main_variation(move)
 
             # write score
-            povscore = score
             node.set_eval(povscore)
 
             # write result
