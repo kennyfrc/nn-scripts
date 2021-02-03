@@ -7,3 +7,6 @@ env/
 # engine weights and configuration
 *.pb
 *.config
+
+# mac files
+.DS_Store
