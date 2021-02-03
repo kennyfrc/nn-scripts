@@ -5,7 +5,6 @@ import chess.polyglot
 import random
 import pdb
 import math
-import numpy as np
 
 # define engines
 ENGINE_1="lc0"
@@ -32,14 +31,23 @@ def pick_with_softmax(results, color):
     if color == chess.WHITE:
         for result in results:
             # convert leela mate score of None to 0
-            raw_score = result["score"].relative.score() if result["score"].relative.score() != None else 0
-            policies.append(np.exp(raw_score))
+            # also turn ultra tiny values to 0 to avoid overflow errors with math.exp
+            raw_score = None
+            if result["score"].relative.score() != None and result["score"].relative.score() >= -0.01 and result["score"].relative.score() <= 0.01:
+                raw_score = result["score"].relative.score()
+            else:
+                raw_score = 0
+            policies.append(math.exp(raw_score))
             scores.append(result["score"])
             moves.append(result["pv"])
     else:
         for result in results:
-            raw_score = result["score"].relative.score() if result["score"].relative.score() != None else 0
-            policies.append(-np.exp(raw_score))
+            raw_score = None
+            if result["score"].relative.score() != None and result["score"].relative.score() >= -0.01 and result["score"].relative.score() <= 0.01:
+                raw_score = result["score"].relative.score()
+            else:
+                raw_score = 0
+            policies.append(-math.exp(raw_score))
             scores.append(result["score"])
             moves.append(result["pv"])
 
@@ -52,8 +60,7 @@ def pick_with_softmax(results, color):
     # for debugging
     # sum_check = 0
     # for policy in final_policies:
-        # sum_check += policy
-    # should be 1
+    #     sum_check += policy
     # print(f"policy_sum:", sum_check)
 
     # relate move with score
