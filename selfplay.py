@@ -23,11 +23,11 @@ MULTIPV = 10
 NODES = 1
 
 # filenames
-BUFFER_FILE = "buffer.pgn"
-MAIN_FILE = "main.pgn"
+BUFFER_FILE = "buffer1.pgn"
+MAIN_FILE = "main1.pgn"
 
 # number of games
-GAMES = 1000
+GAMES = 100000
 
 def pick_with_softmax(results, color):
     # softmax allows us to pick moves randomly
@@ -172,7 +172,7 @@ def main(games):
         fout.write(buffer_file)
         fout.close()
 
-        os.remove("buffer.pgn")
+        os.remove(BUFFER_FILE))
 
     # exit engines
     engine_w.quit()
