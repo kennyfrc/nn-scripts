@@ -1,14 +1,16 @@
+# libraries for general pgn writing and uci comms
 import chess
 import chess.pgn
 import chess.engine
 import chess.polyglot
+# libraries for move picker
 import random
-import pdb
 import math
-
-# for 7 tag roster
+# libaries to complete 7 tag roster
 import socket
 import datetime
+# library to remove buffer file at the end
+import os
 
 # define engines
 ENGINE_1="lc0"
@@ -185,6 +187,8 @@ def main(games):
         fout = open(MAIN_FILE, "a")
         fout.write(buffer_file)
         fout.close()
+
+        os.remove("buffer.pgn")
 
     # exit engines
     engine_w.quit()
