@@ -6,6 +6,10 @@ import random
 import pdb
 import math
 
+# for 7 tag roster
+import socket
+import datetime
+
 # define engines
 ENGINE_1="lc0"
 ENGINE_2="lc0"
@@ -16,7 +20,14 @@ WIN_THRESHOLD = 100
 # engine options
 MULTIPV = 10
 NODES = 1
-BOOK_MIN_PLY = 4 
+BOOK_MIN_PLY = 4
+
+# filenames
+BUFFER_FILE = "buffer.pgn"
+MAIN_FILE = "main.pgn"
+
+# number of games
+GAMES = 100
 
 def pick_with_softmax(results, color):
     # softmax allows us to pick moves randomly
@@ -72,98 +83,111 @@ def pick_with_softmax(results, color):
     # return move and score
     return final_move_wscore[0][0], final_move_wscore[1]
 
-def main():
+def main(games):
     # initialize engines
     engine_w = chess.engine.SimpleEngine.popen_uci(ENGINE_1)
     engine_b = chess.engine.SimpleEngine.popen_uci(ENGINE_2)
 
-    # create game tree
-    game = chess.pgn.Game()
-    game.headers["Event"] = "Example"
-    game.headers["White"] = ENGINE_1
-    game.headers["Black"] = ENGINE_2
-    # init game node
-    node = None
+    for i in range(1, games+1):
+        print(f"playing: game {i} out of {games}")
+        # create game tree
+        game = chess.pgn.Game()
+        game.headers["White"] = ENGINE_1
+        game.headers["Black"] = ENGINE_2
+        game.headers["Round"] = i
+        game.headers["Date"] = datetime.date.today().strftime("%Y.%m.%d")
+        game.headers["Site"] = socket.gethostname()
+        game.headers["Event"] = f"Game Generation"
+        # init game node
+        node = None
 
-    # initialize board
-    board = chess.Board()
+        # initialize board
+        board = chess.Board()
 
 
-    while not board.is_game_over():
-        # init engine moves
-        results = None
+        while not board.is_game_over():
+            # init engine moves
+            results = None
 
-        # if we're in the opening use the book
-        if board.ply() <= BOOK_MIN_PLY-1:
-            # init book
-            book = None
-            # load polyglot
-            with chess.polyglot.open_reader("books/jbook_4ply.bin") as opening_book:
-                if opening_book.get(board):
-                    book = opening_book.weighted_choice(board)
-            
-            # define and evaluate book move
-            # chess.engine.Info(2) == cp score 
-            if board.turn == chess.WHITE:
-                results = engine_w.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV, root_moves=[book.move])
-            else:
-                results = engine_b.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV, root_moves=[book.move])
-
-            opening_book.close()
-        # else, use engine moves
-        else:
-            # define non-book move
-            # chess.engine.Info(2) == cp score 
-            if board.turn == chess.WHITE:
-                results = engine_w.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV)
-            else:
-                results = engine_b.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV)
-
-        move, score = pick_with_softmax(results,board.turn)
-
-        # play the move
-        board.push(move)
-
-        # record the move in the game tree
-        if(node == None):
-            node = game.add_main_variation(move)
-            
-        else:
-            node = node.add_main_variation(move)
-
-        # write score
-        povscore = score
-        node.set_eval(povscore)
-
-        # write result
-        if board.is_game_over():
-            # write checkmate
-            if board.is_checkmate():
-                if node.parent.turn() == chess.WHITE:
-                    game.headers['Result'] = "1-0"
+            # if we're in the opening use the book
+            if board.ply() <= BOOK_MIN_PLY-1:
+                # init book
+                book = None
+                # load polyglot
+                with chess.polyglot.open_reader("books/jbook_4ply.bin") as opening_book:
+                    if opening_book.get(board):
+                        book = opening_book.weighted_choice(board)
+                
+                # define and evaluate book move
+                # chess.engine.Info(2) == cp score 
+                if board.turn == chess.WHITE:
+                    results = engine_w.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV, root_moves=[book.move])
                 else:
-                    game.headers['Result'] = "0-1"
+                    results = engine_b.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV, root_moves=[book.move])
 
-            # write non-checkmate eval
+                opening_book.close()
+            # else, use engine moves
             else:
-                score = povscore.relative.score()
+                # define non-book move
+                # chess.engine.Info(2) == cp score 
+                if board.turn == chess.WHITE:
+                    results = engine_w.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV)
+                else:
+                    results = engine_b.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV)
 
-                if (score <= WIN_THRESHOLD and score >= -WIN_THRESHOLD):
-                    game.headers['Result'] = "1/2-1/2"
-                elif (score < -WIN_THRESHOLD):
-                    game.headers['Result'] = "0-1"
-                elif (score > WIN_THRESHOLD):
-                    game.headers['Result'] = "1-0"
+            move, score = pick_with_softmax(results,board.turn)
 
-        # for debugging
-        # print(game)
+            # play the move
+            board.push(move)
+
+            # record the move in the game tree
+            if(node == None):
+                node = game.add_main_variation(move)
+                
+            else:
+                node = node.add_main_variation(move)
+
+            # write score
+            povscore = score
+            node.set_eval(povscore)
+
+            # write result
+            if board.is_game_over():
+                # write checkmate
+                if board.is_checkmate():
+                    if node.parent.turn() == chess.WHITE:
+                        game.headers['Result'] = "1-0"
+                    else:
+                        game.headers['Result'] = "0-1"
+
+                # write non-checkmate eval
+                else:
+                    score = povscore.relative.score()
+
+                    if (score <= WIN_THRESHOLD and score >= -WIN_THRESHOLD):
+                        game.headers['Result'] = "1/2-1/2"
+                    elif (score < -WIN_THRESHOLD):
+                        game.headers['Result'] = "0-1"
+                    elif (score > WIN_THRESHOLD):
+                        game.headers['Result'] = "1-0"
+
+            # for debugging
+            # print(game)
+
+        # write to a file
+        print(game, file=open(BUFFER_FILE, "w"), end="\n\n")
+
+        # concatenate to main pgn
+        fin = open(BUFFER_FILE, "r")
+        buffer_file = fin.read()
+        fin.close()
+
+        fout = open(MAIN_FILE, "a")
+        fout.write(buffer_file)
+        fout.close()
 
     # exit engines
     engine_w.quit()
     engine_b.quit()
 
-    # write to a file
-    print(game, file=open("test.pgn", "w"), end="\n\n")
-
-
-main()
+main(GAMES)
