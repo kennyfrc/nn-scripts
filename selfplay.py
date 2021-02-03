@@ -2,7 +2,6 @@
 import chess
 import chess.pgn
 import chess.engine
-import chess.polyglot
 # libraries for move picker
 import random
 import math
@@ -22,14 +21,13 @@ WIN_THRESHOLD = 100
 # engine options
 MULTIPV = 10
 NODES = 1
-BOOK_MIN_PLY = 4
 
 # filenames
 BUFFER_FILE = "buffer.pgn"
 MAIN_FILE = "main.pgn"
 
 # number of games
-GAMES = 100
+GAMES = 1000
 
 def pick_with_softmax(results, color):
     # softmax allows us to pick moves randomly
@@ -85,6 +83,10 @@ def pick_with_softmax(results, color):
     # return move and score
     return final_move_wscore[0][0], final_move_wscore[1]
 
+def pick_bestmove(results):
+    return results[0]["pv"][0], results[0]["score"]
+
+
 def main(games):
     # initialize engines
     engine_w = chess.engine.SimpleEngine.popen_uci(ENGINE_1)
@@ -106,38 +108,21 @@ def main(games):
         # initialize board
         board = chess.Board()
 
-
         while not board.is_game_over():
             # init engine moves
             results = None
 
-            # if we're in the opening use the book
-            if board.ply() <= BOOK_MIN_PLY-1:
-                # init book
-                book = None
-                # load polyglot
-                with chess.polyglot.open_reader("books/jbook_4ply.bin") as opening_book:
-                    if opening_book.get(board):
-                        book = opening_book.weighted_choice(board)
-                
-                # define and evaluate book move
-                # chess.engine.Info(2) == cp score 
-                if board.turn == chess.WHITE:
-                    results = engine_w.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV, root_moves=[book.move])
-                else:
-                    results = engine_b.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV, root_moves=[book.move])
-
-                opening_book.close()
-            # else, use engine moves
+            # define non-book move
+            # chess.engine.Info(2) == cp score 
+            if board.turn == chess.WHITE:
+                results = engine_w.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV)
             else:
-                # define non-book move
-                # chess.engine.Info(2) == cp score 
-                if board.turn == chess.WHITE:
-                    results = engine_w.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV)
-                else:
-                    results = engine_b.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV)
+                results = engine_b.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV)
 
-            move, povscore = pick_with_softmax(results,board.turn)
+            if board.fullmove_number > 30:
+                move, povscore = pick_bestmove(results)
+            else:
+                move, povscore = pick_with_softmax(results,board.turn)
 
             # play the move
             board.push(move)
@@ -165,7 +150,7 @@ def main(games):
                 else:
                     score = povscore.relative.score()
 
-                    if (score <= WIN_THRESHOLD and score >= -WIN_THRESHOLD):
+                    if (score <= WIN_THRESHOLD and score >= -WIN_THRESHOLD) or board.is_stalemate() or board.is_insufficient_material() or board.is_seventyfive_moves() or board.is_fivefold_repetition():
                         game.headers['Result'] = "1/2-1/2"
                     elif (score < -WIN_THRESHOLD):
                         game.headers['Result'] = "0-1"
