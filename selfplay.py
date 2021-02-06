@@ -1,3 +1,5 @@
+# library for cli
+import argparse
 # libraries for general pgn writing and uci comms
 import chess
 import chess.pgn
@@ -11,10 +13,6 @@ import datetime
 # library to remove buffer file at the end
 import os
 
-# define engines
-ENGINE_1="lc0"
-ENGINE_2="lc0"
-
 # threshholds
 WIN_THRESHOLD = 100
 
@@ -24,11 +22,54 @@ NODES = 1
 DEPTH = 8
 
 # filenames
-BUFFER_FILE = "buffer.pgn"
-MAIN_FILE = "main.pgn"
+OUTPUT_PGN = "output.pgn"
+OUTPUT_PLAIN = "output.plain"
 
-# number of games
-GAMES = 10000
+def parse_result(result_str:str, board:chess.Board) -> int:
+    if result_str == "1/2-1/2":
+        return 0
+    if result_str == "0-1":
+        if board.turn == chess.WHITE:
+            return -1
+        else:
+            return 1
+    elif result_str == "1-0":
+        if board.turn == chess.WHITE:
+            return 1
+        else:
+            return -1
+    else:
+        print("illegal result", result_str)
+        raise ValueError
+
+def game_sanity_check(game: chess.pgn.Game) -> bool:
+    if not game.headers["Result"] in ["1/2-1/2", "0-1", "1-0"]:
+        print("invalid result", game.headers["Result"])
+        return False
+    return True
+
+def parse_game(game: chess.pgn.Game, writer)->None:
+    if not game_sanity_check(game):
+        return
+
+    result: str = game.headers["Result"]
+
+    node = game.end()
+    while node.move != None:
+        move = node.move
+        comment: str = node.comment
+        writer.write("fen " + node.parent.board().fen() + "\n")
+        writer.write("move " + str(move) + "\n")
+        if node.parent.turn() == chess.WHITE:
+            writer.write("score " + str(int(node.eval().pov(chess.WHITE).score(mate_score=15000)*2.08)) + "\n")
+            writer.write("ply " + str(node.ply())+"\n")        
+            writer.write("result " + str(parse_result(result, node.parent.board())) +"\n")
+        else:
+            writer.write("score " + str(int(node.eval().pov(chess.BLACK).score(mate_score=15000)*2.08)) + "\n")
+            writer.write("ply " + str(node.ply())+"\n")        
+            writer.write("result " + str(parse_result(result, node.parent.board())) +"\n")
+        writer.write("e\n")
+        node = node.parent
 
 def pick_with_softmax(results, color):
     # softmax allows us to pick moves randomly
@@ -88,17 +129,17 @@ def pick_bestmove(results):
     return results[0]["pv"][0], results[0]["score"]
 
 
-def main(games):
+def play(games, engine, file_type):
     # initialize engines
-    engine_w = chess.engine.SimpleEngine.popen_uci(ENGINE_1)
-    engine_b = chess.engine.SimpleEngine.popen_uci(ENGINE_2)
+    engine_w = chess.engine.SimpleEngine.popen_uci(engine)
+    engine_b = chess.engine.SimpleEngine.popen_uci(engine)
 
     for i in range(1, games+1):
         print(f"playing: game {i} out of {games}")
         # create game tree
         game = chess.pgn.Game()
-        game.headers["White"] = ENGINE_1
-        game.headers["Black"] = ENGINE_2
+        game.headers["White"] = engine
+        game.headers["Black"] = engine
         game.headers["Round"] = i
         game.headers["Date"] = datetime.date.today().strftime("%Y.%m.%d")
         game.headers["Site"] = socket.gethostname()
@@ -161,22 +202,27 @@ def main(games):
             # for debugging
             # print(game)
 
-        # write to a file
-        print(game, file=open(BUFFER_FILE, "w"), end="\n\n")
-
-        # concatenate to main pgn
-        fin = open(BUFFER_FILE, "r")
-        buffer_file = fin.read()
-        fin.close()
-
-        fout = open(MAIN_FILE, "a")
-        fout.write(buffer_file)
-        fout.close()
-
-        os.remove("buffer.pgn")
+        if file_type == "plain": 
+            # open file
+            output_file = open(OUTPUT_PLAIN, 'w')
+            parse_game(game, output_file)
+            output_file.close()
 
     # exit engines
     engine_w.quit()
     engine_b.quit()
 
-main(GAMES)
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--games", type=int, required=True)
+    parser.add_argument("--engine", type=str, default="stockfish")
+    parser.add_argument("--output", type=str, default="pgn")
+    args = parser.parse_args()
+    games = args.games
+    engine = args.engine
+    file_type = args.output
+
+    play(games, engine, file_type)
+
+if __name__ == "__main__":
+    main()
