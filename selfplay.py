@@ -16,11 +16,6 @@ import os
 # threshholds
 WIN_THRESHOLD = 100
 
-# engine options
-MULTIPV = 10
-NODES = 1
-DEPTH = 8
-
 # filenames
 OUTPUT_PGN = "output.pgn"
 OUTPUT_PLAIN = "output.plain"
@@ -129,7 +124,20 @@ def pick_bestmove(results):
     return results[0]["pv"][0], results[0]["score"]
 
 
-def play(games, engine, file_type):
+def play(games, engine, file_type, nodes, depth, multipv):
+    # intialize options
+    if nodes == 0:
+        nodes = None
+    if depth == 0:
+        depth = None
+
+    # default if you don't set anything
+    if nodes == None and depth == None:
+        nodes = 1
+
+    print(f"nodes:", nodes)
+    print(f"depth:", depth)
+
     # initialize engines
     engine_w = chess.engine.SimpleEngine.popen_uci(engine)
     engine_b = chess.engine.SimpleEngine.popen_uci(engine)
@@ -157,9 +165,9 @@ def play(games, engine, file_type):
             # define non-book move
             # chess.engine.Info(2) == cp score 
             if board.turn == chess.WHITE:
-                results = engine_w.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV)
+                results = engine_w.analyse(board, chess.engine.Limit(nodes=nodes,depth=depth), info=chess.engine.Info.ALL, multipv=multipv)
             else:
-                results = engine_b.analyse(board, chess.engine.Limit(nodes=NODES), info=chess.engine.Info.ALL, multipv=MULTIPV)
+                results = engine_b.analyse(board, chess.engine.Limit(nodes=nodes,depth=depth), info=chess.engine.Info.ALL, multipv=multipv)
 
             if board.fullmove_number > 30:
                 move, povscore = pick_bestmove(results)
@@ -202,11 +210,13 @@ def play(games, engine, file_type):
             # for debugging
             # print(game)
 
+        # write games
         if file_type == "plain": 
-            # open file
             output_file = open(OUTPUT_PLAIN, 'w')
             parse_game(game, output_file)
             output_file.close()
+        elif file_type == "pgn":
+            print(game, file=open(OUTPUT_PGN, "a+"), end="\n\n")
 
     # exit engines
     engine_w.quit()
@@ -215,14 +225,20 @@ def play(games, engine, file_type):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--games", type=int, required=True)
-    parser.add_argument("--engine", type=str, default="stockfish")
+    parser.add_argument("--engine", type=str, default="lc0")
     parser.add_argument("--output", type=str, default="pgn")
+    parser.add_argument("--nodes", type=int, default=0)
+    parser.add_argument("--depth", type=int, default=0)
+    parser.add_argument("--multipv", type=int, default=1)
     args = parser.parse_args()
     games = args.games
     engine = args.engine
     file_type = args.output
+    nodes = args.nodes
+    depth = args.depth
+    multipv = args.multipv
 
-    play(games, engine, file_type)
+    play(games, engine, file_type, nodes, depth, multipv)
 
 if __name__ == "__main__":
     main()
