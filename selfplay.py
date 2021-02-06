@@ -12,6 +12,7 @@ import socket
 import datetime
 # library to remove buffer file at the end
 import os
+import pdb
 
 # threshholds
 WIN_THRESHOLD = 100
@@ -66,6 +67,10 @@ def parse_game(game: chess.pgn.Game, writer)->None:
         writer.write("e\n")
         node = node.parent
 
+def pick_randomly(results):
+    result = random.choices(results)
+    return result[0]['pv'][0], result[0]["score"]
+    
 def pick_with_softmax(results, color):
     # softmax allows us to pick moves randomly
     # based upon the likelihood its the best move
@@ -124,7 +129,7 @@ def pick_bestmove(results):
     return results[0]["pv"][0], results[0]["score"]
 
 
-def play(games, engine, file_type, nodes, depth, multipv):
+def play(games, engine, file_type, nodes, depth, multipv, mode):
     # intialize options
     if nodes == 0:
         nodes = None
@@ -171,8 +176,10 @@ def play(games, engine, file_type, nodes, depth, multipv):
 
             if board.fullmove_number > 30:
                 move, povscore = pick_bestmove(results)
-            else:
+            elif mode == "softmax":
                 move, povscore = pick_with_softmax(results,board.turn)
+            else:
+                move, povscore = pick_randomly(results)
 
             # play the move
             board.push(move)
@@ -229,7 +236,8 @@ def main():
     parser.add_argument("--output", type=str, default="pgn")
     parser.add_argument("--nodes", type=int, default=0)
     parser.add_argument("--depth", type=int, default=0)
-    parser.add_argument("--multipv", type=int, default=1)
+    parser.add_argument("--multipv", type=int, default=20)
+    parser.add_argument("--mode", type=str, default="random")
     args = parser.parse_args()
     games = args.games
     engine = args.engine
@@ -237,8 +245,9 @@ def main():
     nodes = args.nodes
     depth = args.depth
     multipv = args.multipv
+    mode = args.mode
 
-    play(games, engine, file_type, nodes, depth, multipv)
+    play(games, engine, file_type, nodes, depth, multipv, mode)
 
 if __name__ == "__main__":
     main()
