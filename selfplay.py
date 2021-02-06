@@ -21,13 +21,14 @@ WIN_THRESHOLD = 100
 # engine options
 MULTIPV = 10
 NODES = 1
+DEPTH = 8
 
 # filenames
 BUFFER_FILE = "buffer.pgn"
 MAIN_FILE = "main.pgn"
 
 # number of games
-GAMES = 1000
+GAMES = 10000
 
 def pick_with_softmax(results, color):
     # softmax allows us to pick moves randomly
