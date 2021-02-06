@@ -212,7 +212,7 @@ def play(games, engine, file_type, nodes, depth, multipv):
 
         # write games
         if file_type == "plain": 
-            output_file = open(OUTPUT_PLAIN, 'w')
+            output_file = open(OUTPUT_PLAIN, 'a+')
             parse_game(game, output_file)
             output_file.close()
         elif file_type == "pgn":
