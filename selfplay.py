@@ -13,12 +13,16 @@ import socket
 import datetime
 # utilities
 import os
+import os.path
+from os import path
 import pdb
 
 # threshholds
 WIN_THRESHOLD = 100
 
 def parse_result(result_str, board) -> int:
+    assert board.is_valid()
+
     if result_str == "1/2-1/2":
         return 0
     if result_str == "0-1":
@@ -36,11 +40,12 @@ def parse_result(result_str, board) -> int:
         raise ValueError
 
 def game_sanity_check(game) -> bool:
+    assert game.board().is_valid(), "Invalid board."
+
     if not game.headers["Result"] in ["1/2-1/2", "0-1", "1-0"]:
         print("invalid result", game.headers["Result"])
         return False
     return True
-
 
 def parse_game(game, writer) -> None:
     if not game_sanity_check(game):
@@ -176,11 +181,12 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
             # set multipv to none when using book move
             if book_reader:
                 entries = list(book_reader.find_all(board))
-                if list(entries):
+                if list(entries) != []:
                     book_move = random.choices(list(entries))[0].move
                     root_moves = []
                     root_moves.append(book_move)
                     multipv = 1
+                    assert root_moves, "Book move not read."
             
             # if off book and the mode is random, choose a random move
             # set multipv to none when using random move
@@ -189,12 +195,17 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
                 root_moves = []
                 root_moves.append(random_move[0])
                 multipv = 1
+                assert root_moves, "Random move not found."
 
             # define non-book move
             if board.turn == chess.WHITE:
                 results = engine_w.analyse(board, chess.engine.Limit(nodes=nodes, depth=depth), info=chess.engine.Info.ALL, multipv=multipv, root_moves=root_moves)
+
+                assert results[0]["score"].relative.score() != None or results[0]["score"].is_mate(), "Score or mate can't be found for engine on white side."
             else:
                 results = engine_b.analyse(board, chess.engine.Limit(nodes=nodes, depth=depth), info=chess.engine.Info.ALL, multipv=multipv,root_moves=root_moves)
+
+                assert results[0]["score"].relative.score() != None or results[0]["score"].is_mate(), "Score or mate can't be found for engine on black side."
 
             if board.fullmove_number > cutoff_move:
                 move, povscore = pick_bestmove(results)
@@ -205,6 +216,8 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
 
             # play the move
             board.push(move)
+
+            assert board.is_valid(), "Invalid move."
 
             # record the move in the game tree
             if(node == None):
@@ -229,6 +242,8 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
                 # write non-checkmate eval
                 else:
                     score = povscore.relative.score(mate_score=32000)
+
+                    assert score != None, "Invalid score."
                     
                     if (score <= WIN_THRESHOLD and score >= -WIN_THRESHOLD) or board.is_stalemate() or board.is_insufficient_material() or board.is_seventyfive_moves() or board.is_fivefold_repetition():
                         game.headers['Result'] = "1/2-1/2"
@@ -240,16 +255,25 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
                         game.headers['Result'] = "1-0"
                         white_wins += 1
 
+                assert (draws + white_wins + black_wins) == i, "Results don't add up to total game count."
+
             # for debugging
             # print(game)
 
         # write games
+
         if file_type == "plain": 
             output_file = open(file_name, 'a+')
             parse_game(game, output_file)
             output_file.close()
+
+            assert path.exists(file_name), "Couldn't create .plain file."
+
         elif file_type == "pgn":
             print(game, file=open(file_name, "a+"), end="\n\n")
+
+            assert path.exists(file_name), "Couldn't create .pgn file."
+
 
     # exit book
     book_reader.close()
@@ -259,9 +283,9 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
     engine_b.quit()
 
     # log results
-    print(f"white win rate: {white_wins / games * 100}%")
-    print(f"black win rate: {black_wins / games * 100}%")
-    print(f"draw rate: {draws / games * 100}%")
+    print(f"white win rate: {round(white_wins / games * 100,2)}%")
+    print(f"black win rate: {round(black_wins / games * 100,2)}%")
+    print(f"draw rate: {round(draws / games * 100,2)}%")
 
 def main() -> None:
     # parse arguments
@@ -278,6 +302,14 @@ def main() -> None:
 
     # initialize options
     args = parser.parse_args()
+
+    assert args.games >= 1, "Choose a game count greater than 1"
+    assert args.nodes >= 0, "Use a non-negative node count."
+    assert args.depth >= 0, "Use a non-negative depth count."
+    assert args.multipv > 0, "Use a positive multipv count."
+    assert args.cutoff > 0, "Use a positive cutoff count."
+    assert path.exists(args.book), "Can't find book. Kindly check the path."
+
     games = args.games
     engine = args.engine
     file_type = args.file_type
