@@ -18,7 +18,7 @@ import pdb
 # threshholds
 WIN_THRESHOLD = 100
 
-def parse_result(result_str:str, board:chess.Board) -> int:
+def parse_result(result_str, board) -> int:
     if result_str == "1/2-1/2":
         return 0
     if result_str == "0-1":
@@ -35,13 +35,14 @@ def parse_result(result_str:str, board:chess.Board) -> int:
         print("illegal result", result_str)
         raise ValueError
 
-def game_sanity_check(game: chess.pgn.Game) -> bool:
+def game_sanity_check(game) -> bool:
     if not game.headers["Result"] in ["1/2-1/2", "0-1", "1-0"]:
         print("invalid result", game.headers["Result"])
         return False
     return True
 
-def parse_game(game: chess.pgn.Game, writer)->None:
+
+def parse_game(game, writer) -> None:
     if not game_sanity_check(game):
         return
 
@@ -64,11 +65,11 @@ def parse_game(game: chess.pgn.Game, writer)->None:
         writer.write("e\n")
         node = node.parent
 
-def pick_randomly(results):
+def pick_randomly(results) -> tuple:
     result = random.choices(results)
     return result[0]['pv'][0], result[0]["score"]
     
-def pick_with_softmax(results, color):
+def pick_with_softmax(results, color) -> tuple:
     # softmax allows us to pick moves randomly
     # based upon the likelihood its the best move
     # https://en.wikipedia.org/wiki/Softmax_function
@@ -122,10 +123,10 @@ def pick_with_softmax(results, color):
     # return move and score
     return final_move_wscore[0][0], final_move_wscore[1]
 
-def pick_bestmove(results):
+def pick_bestmove(results) -> tuple:
     return results[0]["pv"][0], results[0]["score"]
 
-def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutoff_move, book_reader):
+def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutoff_move, book_reader) -> None:
     # intialize options
     if nodes == 0:
         nodes = None
@@ -141,7 +142,6 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
     black_wins = 0
     sum_game_evals = 0
     draws = 0
-
 
     # initialize engines
     engine_w = chess.engine.SimpleEngine.popen_uci(engine)
@@ -170,7 +170,6 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
             results = None
             # for random mover or book move
             root_moves = None
-
             # book move
             book_move = None
 
@@ -192,7 +191,6 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
                 root_moves.append(random_move[0])
                 multipv = 1
 
-
             # define non-book move
             if board.turn == chess.WHITE:
                 results = engine_w.analyse(board, chess.engine.Limit(nodes=nodes, depth=depth), info=chess.engine.Info.ALL, multipv=multipv, root_moves=root_moves)
@@ -201,8 +199,6 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
 
             if board.fullmove_number > cutoff_move:
                 move, povscore = pick_bestmove(results)
-
-
             elif mode == "softmax":
                 move, povscore = pick_with_softmax(results, board.turn)
             else:
@@ -214,7 +210,6 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
             # record the move in the game tree
             if(node == None):
                 node = game.add_main_variation(move)
-                
             else:
                 node = node.add_main_variation(move)
 
@@ -227,7 +222,6 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
             # write result
             if board.is_game_over():
                 # write checkmate
-
                 if board.is_checkmate():
                     if node.parent.turn() == chess.WHITE:
                         game.headers['Result'] = "1-0"
@@ -278,7 +272,7 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
     print(f"average eval diff per move: {round(sum_game_evals / games,2)} centipawns")
     print(f"draw rate: {draws / games * 100}%")
 
-def main():
+def main() -> None:
     # parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--games", type=int, required=True)
