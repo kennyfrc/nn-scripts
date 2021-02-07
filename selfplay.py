@@ -21,7 +21,7 @@ import pdb
 WIN_THRESHOLD = 100
 
 def parse_result(result_str, board) -> int:
-    assert board.is_valid()
+    assert board.is_valid(), "Invalid board."
 
     if result_str == "1/2-1/2":
         return 0
