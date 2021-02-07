@@ -140,7 +140,6 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
     # to log results
     white_wins = 0
     black_wins = 0
-    sum_game_evals = 0
     draws = 0
 
     # initialize engines
@@ -216,9 +215,6 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
             # write score
             node.set_eval(povscore)
 
-            # record scores (just one side)
-            evals = povscore.pov(chess.WHITE).score(mate_score=0)
-
             # write result
             if board.is_game_over():
                 # write checkmate
@@ -226,11 +222,9 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
                     if node.parent.turn() == chess.WHITE:
                         game.headers['Result'] = "1-0"
                         white_wins += 1
-                        sum_game_evals += evals / board.ply()
                     else:
                         game.headers['Result'] = "0-1"
                         black_wins += 1
-                        sum_game_evals += -evals / board.ply()
 
                 # write non-checkmate eval
                 else:
@@ -242,11 +236,9 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
                     elif (score < -WIN_THRESHOLD):
                         game.headers['Result'] = "0-1"
                         black_wins += 1
-                        sum_game_evals += -evals / board.ply()
                     elif (score > WIN_THRESHOLD):
                         game.headers['Result'] = "1-0"
                         white_wins += 1
-                        sum_game_evals += evals / board.ply()
 
             # for debugging
             # print(game)
@@ -269,7 +261,6 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
     # log results
     print(f"white win rate: {white_wins / games * 100}%")
     print(f"black win rate: {black_wins / games * 100}%")
-    print(f"average eval diff per move: {round(sum_game_evals / games,2)} centipawns")
     print(f"draw rate: {draws / games * 100}%")
 
 def main() -> None:
