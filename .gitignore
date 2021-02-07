@@ -1,6 +1,9 @@
 # test pgns
 *.pgn
 
+# debug
+dbg*
+
 # VM
 env/
 

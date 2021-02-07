@@ -5,21 +5,18 @@ import chess
 import chess.pgn
 import chess.engine
 # libraries for move picker
+import chess.polyglot
 import random
 import math
 # libaries to complete 7 tag roster
 import socket
 import datetime
-# library to remove buffer file at the end
+# utilities
 import os
 import pdb
 
 # threshholds
 WIN_THRESHOLD = 100
-
-# filenames
-OUTPUT_PGN = "output.pgn"
-OUTPUT_PLAIN = "output.plain"
 
 def parse_result(result_str:str, board:chess.Board) -> int:
     if result_str == "1/2-1/2":
@@ -128,8 +125,7 @@ def pick_with_softmax(results, color):
 def pick_bestmove(results):
     return results[0]["pv"][0], results[0]["score"]
 
-
-def play(games, engine, file_type, nodes, depth, multipv, mode):
+def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutoff_move, book_reader):
     # intialize options
     if nodes == 0:
         nodes = None
@@ -140,15 +136,20 @@ def play(games, engine, file_type, nodes, depth, multipv, mode):
     if nodes == None and depth == None:
         nodes = 1
 
-    print(f"nodes:", nodes)
-    print(f"depth:", depth)
+    # to log results
+    white_wins = 0
+    black_wins = 0
+    sum_game_evals = 0
+    draws = 0
+
 
     # initialize engines
     engine_w = chess.engine.SimpleEngine.popen_uci(engine)
     engine_b = chess.engine.SimpleEngine.popen_uci(engine)
 
     for i in range(1, games+1):
-        print(f"playing: game {i} out of {games}")
+        if i % 10 == 0 or i == 1 or i == games:
+            print(f"Playing: game {i} out of {games}")
         # create game tree
         game = chess.pgn.Game()
         game.headers["White"] = engine
@@ -157,6 +158,7 @@ def play(games, engine, file_type, nodes, depth, multipv, mode):
         game.headers["Date"] = datetime.date.today().strftime("%Y.%m.%d")
         game.headers["Site"] = socket.gethostname()
         game.headers["Event"] = f"Game Generation"
+        
         # init game node
         node = None
 
@@ -166,18 +168,43 @@ def play(games, engine, file_type, nodes, depth, multipv, mode):
         while not board.is_game_over():
             # init engine moves
             results = None
+            # for random mover or book move
+            root_moves = None
+
+            # book move
+            book_move = None
+
+            # probe book
+            # set multipv to none when using book move
+            if book_reader:
+                entries = list(book_reader.find_all(board))
+                if list(entries):
+                    book_move = random.choices(list(entries))[0].move
+                    root_moves = []
+                    root_moves.append(book_move)
+                    multipv = 1
+            
+            # if off book and the mode is random, choose a random move
+            # set multipv to none when using random move
+            if root_moves and mode == "random" and board.fullmove_number < cutoff_move:
+                random_move = random.choices(list(board.legal_moves))
+                root_moves = []
+                root_moves.append(random_move[0])
+                multipv = 1
+
 
             # define non-book move
-            # chess.engine.Info(2) == cp score 
             if board.turn == chess.WHITE:
-                results = engine_w.analyse(board, chess.engine.Limit(nodes=nodes,depth=depth), info=chess.engine.Info.ALL, multipv=multipv)
+                results = engine_w.analyse(board, chess.engine.Limit(nodes=nodes, depth=depth), info=chess.engine.Info.ALL, multipv=multipv, root_moves=root_moves)
             else:
-                results = engine_b.analyse(board, chess.engine.Limit(nodes=nodes,depth=depth), info=chess.engine.Info.ALL, multipv=multipv)
+                results = engine_b.analyse(board, chess.engine.Limit(nodes=nodes, depth=depth), info=chess.engine.Info.ALL, multipv=multipv,root_moves=root_moves)
 
-            if board.fullmove_number > 30:
+            if board.fullmove_number > cutoff_move:
                 move, povscore = pick_bestmove(results)
+
+
             elif mode == "softmax":
-                move, povscore = pick_with_softmax(results,board.turn)
+                move, povscore = pick_with_softmax(results, board.turn)
             else:
                 move, povscore = pick_randomly(results)
 
@@ -194,60 +221,113 @@ def play(games, engine, file_type, nodes, depth, multipv, mode):
             # write score
             node.set_eval(povscore)
 
+            # record scores (just one side)
+            evals = povscore.pov(chess.WHITE).score(mate_score=0)
+
             # write result
             if board.is_game_over():
                 # write checkmate
+
                 if board.is_checkmate():
                     if node.parent.turn() == chess.WHITE:
                         game.headers['Result'] = "1-0"
+                        white_wins += 1
+                        sum_game_evals += evals / board.ply()
                     else:
                         game.headers['Result'] = "0-1"
+                        black_wins += 1
+                        sum_game_evals += -evals / board.ply()
 
                 # write non-checkmate eval
                 else:
-                    score = povscore.relative.score()
-
+                    score = povscore.relative.score(mate_score=32000)
+                    
                     if (score <= WIN_THRESHOLD and score >= -WIN_THRESHOLD) or board.is_stalemate() or board.is_insufficient_material() or board.is_seventyfive_moves() or board.is_fivefold_repetition():
                         game.headers['Result'] = "1/2-1/2"
+                        draws += 1
                     elif (score < -WIN_THRESHOLD):
                         game.headers['Result'] = "0-1"
+                        black_wins += 1
+                        sum_game_evals += -evals / board.ply()
                     elif (score > WIN_THRESHOLD):
                         game.headers['Result'] = "1-0"
+                        white_wins += 1
+                        sum_game_evals += evals / board.ply()
 
             # for debugging
             # print(game)
 
         # write games
         if file_type == "plain": 
-            output_file = open(OUTPUT_PLAIN, 'a+')
+            output_file = open(file_name, 'a+')
             parse_game(game, output_file)
             output_file.close()
         elif file_type == "pgn":
-            print(game, file=open(OUTPUT_PGN, "a+"), end="\n\n")
+            print(game, file=open(file_name, "a+"), end="\n\n")
+
+    # exit book
+    book_reader.close()
 
     # exit engines
     engine_w.quit()
     engine_b.quit()
 
+    # log results
+    print(f"white win rate: {white_wins / games * 100}%")
+    print(f"black win rate: {black_wins / games * 100}%")
+    print(f"average eval diff per move: {round(sum_game_evals / games,2)} centipawns")
+    print(f"draw rate: {draws / games * 100}%")
+
 def main():
+    # parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--games", type=int, required=True)
     parser.add_argument("--engine", type=str, default="lc0")
-    parser.add_argument("--output", type=str, default="pgn")
+    parser.add_argument("--file_type", type=str, default="pgn", choices=["pgn", "plain"])
     parser.add_argument("--nodes", type=int, default=0)
     parser.add_argument("--depth", type=int, default=0)
-    parser.add_argument("--multipv", type=int, default=20)
-    parser.add_argument("--mode", type=str, default="random")
+    parser.add_argument("--multipv", type=int, default=1)
+    parser.add_argument("--mode", type=str, default="random", choices=["softmax", "random", "random-multipv"])
+    parser.add_argument("--cutoff", type=int, default=30)
+    parser.add_argument("--book", type=str)
+
+    # initialize options
     args = parser.parse_args()
     games = args.games
     engine = args.engine
-    file_type = args.output
+    file_type = args.file_type
     nodes = args.nodes
     depth = args.depth
-    multipv = args.multipv
+    multipv = args.multipv if (args.multipv > 1 and (args.mode == "random-multipv" or args.mode == "softmax")) else 10
     mode = args.mode
+    cutoff_move = args.cutoff
+    base_name = "games-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    file_name = base_name + ".pgn" if file_type == "pgn" else base_name + ".plain"
 
-    play(games, engine, file_type, nodes, depth, multipv, mode)
+    # initialize book
+    if args.book:
+        reader = chess.polyglot.open_reader(args.book)
+        if reader:
+            print(f"BOOK:", args.book)
+    else:
+        reader = None
+        print(f"BOOK: Using no book")
+
+    # print the options you've set
+    print(f"NUM OF GAMES:", games)
+    print(f"ENGINE:", engine)
+    print(f"NODES:", nodes)
+    print(f"DEPTH:", depth)
+    print(f"MULTIPV:", multipv)
+    print(f"MODE:", mode)
+    print(f"FILE_TYPE:", file_type)
+    print(f"CUTOFF BY MOVE:", cutoff_move)
+    print(f"OUTPUT_NAME:", file_name)
+
+    # run self-play games
+    play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutoff_move, reader)
+
+    print(f"Done!")
 
 if __name__ == "__main__":
     main()
