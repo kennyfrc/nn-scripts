@@ -20,6 +20,7 @@ import pdb
 # threshholds
 WIN_THRESHOLD = 100
 
+# parse result of game
 def parse_result(result_str, board) -> int:
     assert board.is_valid(), "Invalid board."
 
@@ -39,6 +40,7 @@ def parse_result(result_str, board) -> int:
         print("illegal result", result_str)
         raise ValueError
 
+# check if the game isn't botched
 def game_sanity_check(game) -> bool:
     assert game.board().is_valid(), "Invalid board."
 
@@ -47,6 +49,7 @@ def game_sanity_check(game) -> bool:
         return False
     return True
 
+# parse to stockfish nnue format
 def parse_game(game, writer) -> None:
     if not game_sanity_check(game):
         return
@@ -70,14 +73,23 @@ def parse_game(game, writer) -> None:
         writer.write("e\n")
         node = node.parent
 
+# pick random move
 def pick_randomly(results) -> tuple:
     result = random.choices(results)
     return result[0]['pv'][0], result[0]["score"]
+
+# check if policy sums to 1
+def check_policy_sum(policies) -> bool:
+    sum_check = 0
+    for policy in policies:
+        sum_check += policy
+    if sum_check >= 0.99 and sum_check <= 1.01:
+        return True
+    else:
+        return False
     
+# pick a move by softmaxing over multipv: https://en.wikipedia.org/wiki/Softmax_function
 def pick_with_softmax(results, color) -> tuple:
-    # softmax allows us to pick moves randomly
-    # based upon the likelihood its the best move
-    # https://en.wikipedia.org/wiki/Softmax_function
     scores = []
     policies = []
     policy_sum = 0
@@ -113,24 +125,21 @@ def pick_with_softmax(results, color) -> tuple:
 
     final_policies = list(map(lambda pol: pol/policy_sum, policies))
 
-    # for debugging
-    # sum_check = 0
-    # for policy in final_policies:
-    #     sum_check += policy
-    # print(f"policy_sum:", sum_check)
+    assert check_policy_sum(final_policies), "Policy sum does not approximate to 1."
 
     # relate move with score
     moves_wscore = list(zip(moves, scores))
 
-    # randomly sample move
+    # randomly sample move (weighted)
     final_move_wscore = random.choices(moves_wscore, weights=final_policies, k=1)[0]
 
-    # return move and score
     return final_move_wscore[0][0], final_move_wscore[1]
 
+# get best move from principal variation
 def pick_bestmove(results) -> tuple:
     return results[0]["pv"][0], results[0]["score"]
 
+# initiate self-play games
 def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutoff_move, book_reader) -> None:
     # intialize options
     if nodes == 0:
@@ -152,9 +161,12 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
     engine_b = chess.engine.SimpleEngine.popen_uci(engine)
 
     for i in range(1, games+1):
+
+        # log status
         if i % 10 == 0 or i == 1 or i == games:
             print(f"Playing: game {i} out of {games}")
-        # create game tree
+        
+        # init game tree
         game = chess.pgn.Game()
         game.headers["White"] = engine
         game.headers["Black"] = engine
@@ -170,15 +182,17 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
         board = chess.Board()
 
         while not board.is_game_over():
-            # init engine moves
+            
+            # holds all variations
             results = None
-            # for random mover or book move
+
+            # holds list of random moves or book moves for python-chess
             root_moves = None
-            # book move
+
+            # actual book move state
             book_move = None
 
             # probe book
-            # set multipv to none when using book move
             if book_reader:
                 entries = list(book_reader.find_all(board))
                 if list(entries) != []:
@@ -188,8 +202,7 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
                     multipv = 1
                     assert root_moves, "Book move not read."
             
-            # if off book and the mode is random, choose a random move
-            # set multipv to none when using random move
+            # if off-book and the mode is random, choose a random move
             if root_moves and mode == "random" and board.fullmove_number < cutoff_move:
                 random_move = random.choices(list(board.legal_moves))
                 root_moves = []
@@ -197,7 +210,7 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
                 multipv = 1
                 assert root_moves, "Random move not found."
 
-            # define non-book move
+            # engine to define UCI move and score for given book, multipv, and mode
             if board.turn == chess.WHITE:
                 results = engine_w.analyse(board, chess.engine.Limit(nodes=nodes, depth=depth), info=chess.engine.Info.ALL, multipv=multipv, root_moves=root_moves)
 
@@ -207,6 +220,7 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
 
                 assert results[0]["score"].relative.score() != None or results[0]["score"].is_mate(), "Score or mate can't be found for engine on black side."
 
+            # pick move from variations given user options
             if board.fullmove_number > cutoff_move:
                 move, povscore = pick_bestmove(results)
             elif mode == "softmax":
@@ -214,23 +228,23 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
             else:
                 move, povscore = pick_randomly(results)
 
-            # play the move
+            # apply the move to the board data structure
             board.push(move)
 
             assert board.is_valid(), "Invalid move."
 
-            # record the move in the game tree
+            # write the move in the game tree (for pgn / plain)
             if(node == None):
                 node = game.add_main_variation(move)
             else:
                 node = node.add_main_variation(move)
 
-            # write score
+            # write the score in the game tree
             node.set_eval(povscore)
 
-            # write result
+            # write the result in the game tree if game is over
             if board.is_game_over():
-                # write checkmate
+                # results for checkmate
                 if board.is_checkmate():
                     if node.parent.turn() == chess.WHITE:
                         game.headers['Result'] = "1-0"
@@ -239,7 +253,7 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
                         game.headers['Result'] = "0-1"
                         black_wins += 1
 
-                # write non-checkmate eval
+                # results for non-checkmate
                 else:
                     score = povscore.relative.score(mate_score=32000)
 
@@ -257,11 +271,7 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
 
                 assert (draws + white_wins + black_wins) == i, "Results don't add up to total game count."
 
-            # for debugging
-            # print(game)
-
-        # write games
-
+        # write game tree to file
         if file_type == "plain": 
             output_file = open(file_name, 'a+')
             parse_game(game, output_file)
@@ -300,9 +310,10 @@ def main() -> None:
     parser.add_argument("--cutoff", type=int, default=30)
     parser.add_argument("--book", type=str)
 
-    # initialize options
+    # initialize arguments
     args = parser.parse_args()
 
+    # sanitize inputs
     assert args.games >= 1, "Choose a game count greater than 1"
     assert args.nodes >= 0, "Use a non-negative node count."
     assert args.depth >= 0, "Use a non-negative depth count."
