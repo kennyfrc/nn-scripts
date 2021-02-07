@@ -13,3 +13,12 @@ env/
 
 # mac files
 .DS_Store
+
+# nnue files
+nnue/fen
+nnue/nets
+nnue/pgn
+nnue/plain
+nnue/train
+nnue/val
+nnue/evalsave
