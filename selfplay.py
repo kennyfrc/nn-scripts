@@ -50,7 +50,7 @@ def game_sanity_check(game) -> bool:
     return True
 
 # parse to stockfish nnue format
-def parse_game(game, writer) -> None:
+def parse_game(game, writer, min_ply) -> None:
     if not game_sanity_check(game):
         return
 
@@ -58,6 +58,12 @@ def parse_game(game, writer) -> None:
 
     node = game.end()
     while node.move != None:
+        # stockfish nnue is sensitive to low evals, thus skip it unless it exceeds min_ply
+        if node.ply() < min_ply:
+            node = node.parent
+            continue
+
+        # stockfish trainer format
         move = node.move
         comment: str = node.comment
         writer.write("fen " + node.parent.board().fen() + "\n")
@@ -140,7 +146,7 @@ def pick_bestmove(results) -> tuple:
     return results[0]["pv"][0], results[0]["score"]
 
 # initiate self-play games
-def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutoff_move, book_reader) -> None:
+def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutoff_move, book_reader, min_ply) -> None:
     # intialize options
     if nodes == 0:
         nodes = None
@@ -272,9 +278,9 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
                 assert (draws + white_wins + black_wins) == i, "Results don't add up to total game count."
 
         # write game tree to file
-        if file_type == "plain": 
+        if file_type == "plain":
             output_file = open(file_name, 'a+')
-            parse_game(game, output_file)
+            parse_game(game, output_file, min_ply)
             output_file.close()
 
             assert path.exists(file_name), "Couldn't create .plain file."
@@ -309,6 +315,7 @@ def main() -> None:
     parser.add_argument("--mode", type=str, default="random", choices=["softmax", "random", "random-multipv"])
     parser.add_argument("--cutoff", type=int, default=30)
     parser.add_argument("--book", type=str)
+    parser.add_argument("--min_ply", type=int, default=1)
 
     # initialize arguments
     args = parser.parse_args()
@@ -320,6 +327,7 @@ def main() -> None:
     assert args.multipv > 0, "Use a positive multipv count."
     assert args.cutoff > 0, "Use a positive cutoff count."
     assert path.exists(args.book), "Can't find book. Kindly check the path."
+    assert args.min_ply > 0, "Use a positive ply count."
 
     games = args.games
     engine = args.engine
@@ -331,6 +339,7 @@ def main() -> None:
     cutoff_move = args.cutoff
     base_name = "games-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     file_name = base_name + ".pgn" if file_type == "pgn" else base_name + ".plain"
+    min_ply = args.min_ply
 
     # initialize book
     if args.book:
@@ -353,7 +362,7 @@ def main() -> None:
     print(f"OUTPUT_NAME:", file_name)
 
     # run self-play games
-    play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutoff_move, reader)
+    play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutoff_move, reader, min_ply)
 
     print(f"Done!")
 
