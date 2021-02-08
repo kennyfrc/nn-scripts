@@ -49,19 +49,28 @@ def game_sanity_check(game) -> bool:
         return False
     return True
 
+# clamp values between -3200 to 3200 for the nnue tapered eval
+def clamp(x, minimum=-3200, maximum=3200):
+    return max(minimum, min(x, maximum))
+
 # parse to stockfish nnue format
-def parse_game(game, writer, min_ply) -> None:
+def parse_game(game, writer, min_ply, cutoff_move) -> None:
     if not game_sanity_check(game):
         return
 
     result: str = game.headers["Result"]
 
     node = game.end()
+    end_ply = node.ply()
     while node.move != None:
         # stockfish nnue is sensitive to low evals, thus skip it unless it exceeds min_ply
         if node.ply() < min_ply:
             node = node.parent
             continue
+
+        pct = node.ply() / end_ply
+        tapered_eval = pct * 3200
+        known_win = 1000
 
         # stockfish trainer format
         move = node.move
@@ -69,11 +78,27 @@ def parse_game(game, writer, min_ply) -> None:
         writer.write("fen " + node.parent.board().fen() + "\n")
         writer.write("move " + str(move) + "\n")
         if node.parent.turn() == chess.WHITE:
-            writer.write("score " + str(int(node.eval().pov(chess.WHITE).score(mate_score=15000)*2.08)) + "\n")
+            score = node.eval().pov(chess.WHITE).score(mate_score=1500)
+            sf_score = score*2.08
+
+            if cutoff_move >= node.ply()/2:
+                nnue_score = clamp(sf_score/known_win*tapered_eval)
+            else:
+                nnue_score = sf_score
+
+            writer.write("score " + str(int(nnue_score)) + "\n")
             writer.write("ply " + str(node.ply())+"\n")        
             writer.write("result " + str(parse_result(result, node.parent.board())) +"\n")
         else:
-            writer.write("score " + str(int(node.eval().pov(chess.BLACK).score(mate_score=15000)*2.08)) + "\n")
+            score = node.eval().pov(chess.BLACK).score(mate_score=1500)
+            sf_score = score*2.08
+
+            if cutoff_move >= node.ply()/2:
+                nnue_score = clamp(sf_score/known_win*tapered_eval)
+            else:
+                nnue_score = sf_score
+
+            writer.write("score " + str(int(nnue_score)) + "\n")
             writer.write("ply " + str(node.ply())+"\n")        
             writer.write("result " + str(parse_result(result, node.parent.board())) +"\n")
         writer.write("e\n")
@@ -280,7 +305,7 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
         # write game tree to file
         if file_type == "plain":
             output_file = open(file_name, 'a+')
-            parse_game(game, output_file, min_ply)
+            parse_game(game, output_file, min_ply, cutoff_move)
             output_file.close()
 
             assert path.exists(file_name), "Couldn't create .plain file."
@@ -313,21 +338,12 @@ def main() -> None:
     parser.add_argument("--depth", type=int, default=0)
     parser.add_argument("--multipv", type=int, default=1)
     parser.add_argument("--mode", type=str, default="random", choices=["softmax", "random", "random-multipv"])
-    parser.add_argument("--cutoff", type=int, default=30)
+    parser.add_argument("--cutoff", type=int, default=8)
     parser.add_argument("--book", type=str)
-    parser.add_argument("--min_ply", type=int, default=1)
+    parser.add_argument("--min_ply", type=int, default=15)
 
     # initialize arguments
     args = parser.parse_args()
-
-    # sanitize inputs
-    assert args.games >= 1, "Choose a game count greater than 1"
-    assert args.nodes >= 0, "Use a non-negative node count."
-    assert args.depth >= 0, "Use a non-negative depth count."
-    assert args.multipv > 0, "Use a positive multipv count."
-    assert args.cutoff > 0, "Use a positive cutoff count."
-    assert path.exists(args.book), "Can't find book. Kindly check the path."
-    assert args.min_ply > 0, "Use a positive ply count."
 
     games = args.games
     engine = args.engine
