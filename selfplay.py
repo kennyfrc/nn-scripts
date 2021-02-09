@@ -20,6 +20,10 @@ import pdb
 # threshholds
 WIN_THRESHOLD = 100
 
+# for .plain
+# highest observed from sf gensfen is 3875
+MAX_EVAL = 3875
+
 # parse result of game
 def parse_result(result_str, board) -> int:
     assert board.is_valid(), "Invalid board."
@@ -49,12 +53,34 @@ def game_sanity_check(game) -> bool:
         return False
     return True
 
-# clamp values between -3200 to 3200 for the nnue tapered eval
-def clamp(x, minimum=-3200, maximum=3200):
-    return max(minimum, min(x, maximum))
+def clamp(score, minimum=-MAX_EVAL, maximum=MAX_EVAL):
+    return max(minimum, min(score, maximum))
+
+# scale score between [-MAX_EVAL, MAX_EVAL]
+# for nnue trainer compatibility
+def gensfen_eval(score, game_progress):
+    # exponential formulas based on
+    # game progress and known win cps based on game phase
+
+    mg_known_win = 1034.96*math.exp(-1.43687*game_progress)
+    assert mg_known_win >= 245 and mg_known_win <= 1035
+
+    mg_scaled_eval = int(clamp(score/mg_known_win * MAX_EVAL))
+    assert mg_scaled_eval >= -MAX_EVAL and mg_scaled_eval <= MAX_EVAL
+
+    eg_known_win = 300*math.exp(-1.09861*game_progress)
+    assert eg_known_win >= 85 and eg_known_win <= 350
+
+    eg_scaled_eval = int(clamp(score/eg_known_win * MAX_EVAL))
+    assert eg_scaled_eval >= -MAX_EVAL and eg_scaled_eval <= MAX_EVAL
+
+    scaled_eval = int((1-game_progress)*mg_scaled_eval+((game_progress)*eg_scaled_eval))
+    assert scaled_eval >= -MAX_EVAL and scaled_eval <= MAX_EVAL
+
+    return scaled_eval
 
 # parse to stockfish nnue format
-def parse_game(game, writer, min_ply, cutoff_move) -> None:
+def parse_game(game, writer, min_ply) -> None:
     if not game_sanity_check(game):
         return
 
@@ -68,37 +94,30 @@ def parse_game(game, writer, min_ply, cutoff_move) -> None:
             node = node.parent
             continue
 
-        pct = node.ply() / end_ply
-        tapered_eval = pct * 3200
-        known_win = 1000
+        game_progress = node.ply() / end_ply
+
+        assert game_progress >= 0 and game_progress <= 1
 
         # stockfish trainer format
         move = node.move
         comment: str = node.comment
         writer.write("fen " + node.parent.board().fen() + "\n")
         writer.write("move " + str(move) + "\n")
+
         if node.parent.turn() == chess.WHITE:
             score = node.eval().pov(chess.WHITE).score(mate_score=1500)
-            sf_score = score*2.08
 
-            if cutoff_move >= node.ply()/2:
-                nnue_score = clamp(sf_score/known_win*tapered_eval)
-            else:
-                nnue_score = sf_score
+            scaled_score = gensfen_eval(score, game_progress)
 
-            writer.write("score " + str(int(nnue_score)) + "\n")
+            writer.write("score " + str(int(scaled_score)) + "\n")
             writer.write("ply " + str(node.ply())+"\n")        
             writer.write("result " + str(parse_result(result, node.parent.board())) +"\n")
         else:
             score = node.eval().pov(chess.BLACK).score(mate_score=1500)
-            sf_score = score*2.08
 
-            if cutoff_move >= node.ply()/2:
-                nnue_score = clamp(sf_score/known_win*tapered_eval)
-            else:
-                nnue_score = sf_score
+            scaled_score = gensfen_eval(score, game_progress)
 
-            writer.write("score " + str(int(nnue_score)) + "\n")
+            writer.write("score " + str(int(scaled_score)) + "\n")
             writer.write("ply " + str(node.ply())+"\n")        
             writer.write("result " + str(parse_result(result, node.parent.board())) +"\n")
         writer.write("e\n")
@@ -171,7 +190,7 @@ def pick_bestmove(results) -> tuple:
     return results[0]["pv"][0], results[0]["score"]
 
 # initiate self-play games
-def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutoff_move, book_reader, min_ply) -> None:
+def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, book_reader, min_ply) -> None:
     # intialize options
     if nodes == 0:
         nodes = None
@@ -234,7 +253,7 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
                     assert root_moves, "Book move not read."
             
             # if off-book and the mode is random, choose a random move
-            if root_moves and mode == "random" and board.fullmove_number < cutoff_move:
+            if root_moves and mode == "random" and board.fullmove_number <= min_ply/2:
                 random_move = random.choices(list(board.legal_moves))
                 root_moves = []
                 root_moves.append(random_move[0])
@@ -252,7 +271,7 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
                 assert results[0]["score"].relative.score() != None or results[0]["score"].is_mate(), "Score or mate can't be found for engine on black side."
 
             # pick move from variations given user options
-            if board.fullmove_number > cutoff_move:
+            if board.fullmove_number > min_ply/2:
                 move, povscore = pick_bestmove(results)
             elif mode == "softmax":
                 move, povscore = pick_with_softmax(results, board.turn)
@@ -305,7 +324,7 @@ def play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutof
         # write game tree to file
         if file_type == "plain":
             output_file = open(file_name, 'a+')
-            parse_game(game, output_file, min_ply, cutoff_move)
+            parse_game(game, output_file, min_ply)
             output_file.close()
 
             assert path.exists(file_name), "Couldn't create .plain file."
@@ -338,7 +357,6 @@ def main() -> None:
     parser.add_argument("--depth", type=int, default=0)
     parser.add_argument("--multipv", type=int, default=1)
     parser.add_argument("--mode", type=str, default="random", choices=["softmax", "random", "random-multipv"])
-    parser.add_argument("--cutoff", type=int, default=8)
     parser.add_argument("--book", type=str)
     parser.add_argument("--min_ply", type=int, default=15)
 
@@ -352,7 +370,6 @@ def main() -> None:
     depth = args.depth
     multipv = args.multipv if (args.multipv > 1 and (args.mode == "random-multipv" or args.mode == "softmax")) else 10
     mode = args.mode
-    cutoff_move = args.cutoff
     base_name = "games-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     file_name = base_name + ".pgn" if file_type == "pgn" else base_name + ".plain"
     min_ply = args.min_ply
@@ -374,11 +391,10 @@ def main() -> None:
     print(f"MULTIPV:", multipv)
     print(f"MODE:", mode)
     print(f"FILE_TYPE:", file_type)
-    print(f"CUTOFF BY MOVE:", cutoff_move)
     print(f"OUTPUT_NAME:", file_name)
 
     # run self-play games
-    play(games, engine, file_type, nodes, depth, multipv, mode, file_name, cutoff_move, reader, min_ply)
+    play(games, engine, file_type, nodes, depth, multipv, mode, file_name, reader, min_ply)
 
     print(f"Done!")
 
